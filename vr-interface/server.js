@@ -1,37 +1,34 @@
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const cors = require('cors');
+const express = require("express");
+const os = require("os");
+const { exec } = require("child_process");
 
 const app = express();
-const server = http.createServer(app);
+const PORT = 5000;
 
-const io = new Server(server, {
-  cors: {
-    origin: 'http://localhost:3000', // React app's address
-    methods: ['GET', 'POST']
-  }
+function getServerIP() {
+    const interfaces = os.networkInterfaces();
+    for (let interfaceName in interfaces) {
+        for (let iface of interfaces[interfaceName]) {
+            if (iface.family === "IPv4" && !iface.internal) {
+                return iface.address;
+            }
+        }
+    }
+    return "Not Available";
+}
+
+app.get("/get-ip", (req, res) => {
+    res.json({ ip: getServerIP() });
 });
 
-app.use(cors());
-app.use(express.json());
-
-io.on('connection', (socket) => {
-  console.log(`New client connected: ${socket.id}`);
-
-  // Handle incoming messages from clients
-  socket.on('message', (data) => {
-    console.log(`Message from ${socket.id}: ${data}`);
-    // Broadcast the message to all clients
-    io.emit('message', data);
-  });
-
-  socket.on('disconnect', () => {
-    console.log(`Client disconnected: ${socket.id}`);
-  });
+app.get("/start-camera", (req, res) => {
+    exec("python run_gesture_model.py", (error, stdout, stderr) => {
+        if (error) {
+            console.error(`Error: ${error.message}`);
+            return res.status(500).send("Failed to start camera.");
+        }
+        res.send("Camera started successfully.");
+    });
 });
 
-const PORT = process.env.PORT || 4000;
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

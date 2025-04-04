@@ -1,0 +1,58 @@
+.connection-container {
+  margin-top: 20px;
+  text-align: center;
+}
+
+.ip-card {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white;
+  padding: 15px;
+  border-radius: 10px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+  text-align: center;
+  width: 300px;
+  margin: auto;
+  animation: fadeIn 1s ease-in-out;
+}
+
+.ip-address {
+  font-size: 1.2rem;
+  font-weight: bold;
+}
+
+.copy-btn {
+  background: white;
+  color: #764ba2;
+  border: none;
+  padding: 5px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: transform 0.2s ease-in-out;
+}
+
+.copy-btn:hover {
+  transform: scale(1.1);
+}
+
+.connection-status {
+  margin-top: 20px;
+  font-size: 1.5rem;
+  font-weight: bold;
+  padding: 10px;
+  border-radius: 10px;
+  width: fit-content;
+  margin: auto;
+  transition: all 0.5s ease-in-out;
+}
+
+.connected {
+  background: #2ecc71;
+  color: white;
+  box-shadow: 0 0 10px #2ecc71;
+}
+
+.disconnected {
+  background: #e74c3c;
+  color: white;
+  box-shadow: 0 0 10px #e74c3c;
+}
