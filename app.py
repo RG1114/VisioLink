@@ -1,11 +1,16 @@
-
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 import csv
 import copy
 import argparse
 import itertools
 from collections import Counter
 from collections import deque
-
+import re
+import time
+import requests
+import threading
+from requests.exceptions import RequestException
 import cv2 as cv
 import numpy as np
 import mediapipe as mp
@@ -31,10 +36,226 @@ def get_args():
                         help='min_tracking_confidence',
                         type=int,
                         default=0.5)
+    parser.add_argument("--timeout", 
+                        help='detection timeout in seconds',
+                        type=int,
+                        default=40)
+    parser.add_argument("--server_url", 
+                        help='server URL for sending detections',
+                        type=str,
+                        default="http://localhost:5000/receive-detection")
 
     args = parser.parse_args()
 
     return args
+
+
+def main():
+    # Argument parsing #################################################################
+    args = get_args()
+
+    cap_device = args.device
+    cap_width = args.width
+    cap_height = args.height
+
+    use_static_image_mode = args.use_static_image_mode
+    min_detection_confidence = args.min_detection_confidence
+    min_tracking_confidence = args.min_tracking_confidence
+    timeout = args.timeout
+    server_url = args.server_url
+
+    use_brect = True
+    stop_flag = False
+    
+    # Camera preparation ###############################################################
+    cap = cv.VideoCapture(cap_device)
+    cap.set(cv.CAP_PROP_FRAME_WIDTH, cap_width)
+    cap.set(cv.CAP_PROP_FRAME_HEIGHT, cap_height)
+
+    # Model load #############################################################
+    mp_hands = mp.solutions.hands
+    hands = mp_hands.Hands(
+        static_image_mode=use_static_image_mode,
+        max_num_hands=1,
+        min_detection_confidence=min_detection_confidence,
+        min_tracking_confidence=min_tracking_confidence,
+    )
+
+    keypoint_classifier = KeyPointClassifier()
+
+    point_history_classifier = PointHistoryClassifier()
+
+    # Read labels ###########################################################
+    with open('model/keypoint_classifier/keypoint_classifier_label.csv',
+              encoding='utf-8-sig') as f:
+        keypoint_classifier_labels = csv.reader(f)
+        keypoint_classifier_labels = [
+            row[0] for row in keypoint_classifier_labels
+        ]
+    with open(
+            'model/point_history_classifier/point_history_classifier_label.csv',
+            encoding='utf-8-sig') as f:
+        point_history_classifier_labels = csv.reader(f)
+        point_history_classifier_labels = [
+            row[0] for row in point_history_classifier_labels
+        ]
+
+    # FPS Measurement ########################################################
+    cvFpsCalc = CvFpsCalc(buffer_len=10)
+
+    # Coordinate history #################################################################
+    history_length = 16
+    point_history = deque(maxlen=history_length)
+
+    # Finger gesture history ################################################
+    finger_gesture_history = deque(maxlen=history_length)
+
+    # For storing and sending detected gestures
+    last_detected_gesture = None
+    last_send_time = time.time()
+    send_interval = 0.5  # Send updates every 0.5 seconds
+    start_time = time.time()
+
+    #  ########################################################################
+    mode = 0
+
+    while True:
+        # Check timeout
+        if time.time() - start_time > timeout:
+            print("Timeout reached. Stopping detection.")
+            break
+
+        fps = cvFpsCalc.get()
+
+        # Process Key (ESC: end) #################################################
+        key = cv.waitKey(10)
+        if key == 27:  # ESC
+            break
+        number, mode = select_mode(key, mode)
+
+        # Camera capture #####################################################
+        ret, image = cap.read()
+        if not ret:
+            break
+        image = cv.flip(image, 1)  # Mirror display
+        debug_image = copy.deepcopy(image)
+
+        # Detection implementation #############################################################
+        image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
+
+        image.flags.writeable = False
+        results = hands.process(image)
+        image.flags.writeable = True
+
+        current_gesture = None  # Store the current detected gesture
+
+        #  ####################################################################
+        if results.multi_hand_landmarks is not None:
+            for hand_landmarks, handedness in zip(results.multi_hand_landmarks,
+                                                  results.multi_handedness):
+                # Bounding box calculation
+                brect = calc_bounding_rect(debug_image, hand_landmarks)
+                # Landmark calculation
+                landmark_list = calc_landmark_list(debug_image, hand_landmarks)
+
+                # Conversion to relative coordinates / normalized coordinates
+                pre_processed_landmark_list = pre_process_landmark(
+                    landmark_list)
+                pre_processed_point_history_list = pre_process_point_history(
+                    debug_image, point_history)
+                # Write to the dataset file
+                logging_csv(number, mode, pre_processed_landmark_list,
+                            pre_processed_point_history_list)
+
+                # Hand sign classification
+                hand_sign_id = keypoint_classifier(pre_processed_landmark_list)
+                
+                # Store the detected gesture
+                current_gesture = keypoint_classifier_labels[hand_sign_id]
+                
+                # Print and store for sending later
+                print(f"Detected gesture: {current_gesture}")
+                
+                if hand_sign_id == 2:  # Point gesture
+                    point_history.append(landmark_list[8])
+                else:
+                    point_history.append([0, 0])
+
+                # Finger gesture classification
+                finger_gesture_id = 0
+                point_history_len = len(pre_processed_point_history_list)
+                if point_history_len == (history_length * 2):
+                    finger_gesture_id = point_history_classifier(
+                        pre_processed_point_history_list)
+
+                # Calculates the gesture IDs in the latest detection
+                finger_gesture_history.append(finger_gesture_id)
+                most_common_fg_id = Counter(
+                    finger_gesture_history).most_common()
+
+                # Drawing part
+                debug_image = draw_bounding_rect(use_brect, debug_image, brect)
+                debug_image = draw_landmarks(debug_image, landmark_list)
+                debug_image = draw_info_text(
+                    debug_image,
+                    brect,
+                    handedness,
+                    keypoint_classifier_labels[hand_sign_id],
+                    point_history_classifier_labels[most_common_fg_id[0][0]],
+                )
+        else:
+            point_history.append([0, 0])
+            current_gesture = "No hand detected"
+
+        # Update last detected gesture and send to server if needed
+        if current_gesture != last_detected_gesture or (time.time() - last_send_time) > send_interval:
+            last_detected_gesture = current_gesture
+            last_send_time = time.time()
+    
+    # Map gesture to control command
+            command = map_gesture_to_command(current_gesture)
+    
+    # Send data to server asynchronously
+            def send_request():
+                try:
+                    data_to_send = {
+                        "result": command
+                    }
+                    requests.post(server_url, json=data_to_send, timeout=1.0)
+                    print(f"Sent to server: {command}")
+                except RequestException as e:
+                    print(f"Failed to send data: {e}")
+    
+    # Start a thread to send the request without blocking
+            threading.Thread(target=send_request).start()
+
+        debug_image = draw_point_history(debug_image, point_history)
+        debug_image = draw_info(debug_image, fps, mode, number)
+
+        # Screen reflection #############################################################
+        cv.imshow('Hand Gesture Recognition', debug_image)
+
+    cap.release()
+    cv.destroyAllWindows()
+
+
+def map_gesture_to_command(gesture):
+    """
+    Map the detected gesture to a command for your application
+    Customize based on your recognized gestures and desired controls
+    """
+    # Example mapping - adapt to your specific gestures
+    if gesture == "Open":
+        return "move forward"
+    elif gesture == "Pointer":
+        return "move backwards"  # or another command
+    elif gesture == "Close":
+        return "move backwards"
+    elif gesture == "OK":
+        return "ok_action"
+    # Add more gesture mappings as needed
+    else:
+        return "idle"  # Default command when no specific mapping
 
 
 def select_mode(key, mode):
@@ -66,6 +287,7 @@ def calc_bounding_rect(image, landmarks):
     x, y, w, h = cv.boundingRect(landmark_array)
 
     return [x, y, x + w, y + h]
+
 
 def calc_landmark_list(image, landmarks):
     image_width, image_height = image.shape[1], image.shape[0]
@@ -393,147 +615,6 @@ def draw_info(image, fps, mode, number):
                        cv.LINE_AA)
     return image
 
-def main():
-    # Argument parsing #################################################################
-    args = get_args()
 
-    cap_device = args.device
-    cap_width = args.width
-    cap_height = args.height
-
-    use_static_image_mode = args.use_static_image_mode
-    min_detection_confidence = args.min_detection_confidence
-    min_tracking_confidence = args.min_tracking_confidence
-
-    use_brect = True
-
-    # Camera preparation ###############################################################
-    cap = cv.VideoCapture(cap_device)
-    cap.set(cv.CAP_PROP_FRAME_WIDTH, cap_width)
-    cap.set(cv.CAP_PROP_FRAME_HEIGHT, cap_height)
-
-    # Model load #############################################################
-    mp_hands = mp.solutions.hands
-    hands = mp_hands.Hands(
-        static_image_mode=use_static_image_mode,
-        max_num_hands=1,
-        min_detection_confidence=min_detection_confidence,
-        min_tracking_confidence=min_tracking_confidence,
-    )
-
-    keypoint_classifier = KeyPointClassifier()
-
-    point_history_classifier = PointHistoryClassifier()
-
-    # Read labels ###########################################################
-    with open('model/keypoint_classifier/keypoint_classifier_label.csv',
-              encoding='utf-8-sig') as f:
-        keypoint_classifier_labels = csv.reader(f)
-        keypoint_classifier_labels = [
-            row[0] for row in keypoint_classifier_labels
-        ]
-    with open(
-            'model/point_history_classifier/point_history_classifier_label.csv',
-            encoding='utf-8-sig') as f:
-        point_history_classifier_labels = csv.reader(f)
-        point_history_classifier_labels = [
-            row[0] for row in point_history_classifier_labels
-        ]
-
-    # FPS Measurement ########################################################
-    cvFpsCalc = CvFpsCalc(buffer_len=10)
-
-    # Coordinate history #################################################################
-    history_length = 16
-    point_history = deque(maxlen=history_length)
-
-    # Finger gesture history ################################################
-    finger_gesture_history = deque(maxlen=history_length)
-
-    #  ########################################################################
-    mode = 0
-
-    while True:
-        fps = cvFpsCalc.get()
-
-        # Process Key (ESC: end) #################################################
-        key = cv.waitKey(10)
-        if key == 27:  # ESC
-            break
-        number, mode = select_mode(key, mode)
-
-        # Camera capture #####################################################
-        ret, image = cap.read()
-        if not ret:
-            break
-        image = cv.flip(image, 1)  # Mirror display
-        debug_image = copy.deepcopy(image)
-
-        # Detection implementation #############################################################
-        image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
-
-        image.flags.writeable = False
-        results = hands.process(image)
-        image.flags.writeable = True
-
-        #  ####################################################################
-        if results.multi_hand_landmarks is not None:
-            for hand_landmarks, handedness in zip(results.multi_hand_landmarks,
-                                                  results.multi_handedness):
-                # Bounding box calculation
-                brect = calc_bounding_rect(debug_image, hand_landmarks)
-                # Landmark calculation
-                landmark_list = calc_landmark_list(debug_image, hand_landmarks)
-
-                # Conversion to relative coordinates / normalized coordinates
-                pre_processed_landmark_list = pre_process_landmark(
-                    landmark_list)
-                pre_processed_point_history_list = pre_process_point_history(
-                    debug_image, point_history)
-                # Write to the dataset file
-                logging_csv(number, mode, pre_processed_landmark_list,
-                            pre_processed_point_history_list)
-
-                # Hand sign classification
-                hand_sign_id = keypoint_classifier(pre_processed_landmark_list)
-                if hand_sign_id == 2:  # Point gesture
-                    point_history.append(landmark_list[8])
-                else:
-                    point_history.append([0, 0])
-
-                # Finger gesture classification
-                finger_gesture_id = 0
-                point_history_len = len(pre_processed_point_history_list)
-                if point_history_len == (history_length * 2):
-                    finger_gesture_id = point_history_classifier(
-                        pre_processed_point_history_list)
-
-                # Calculates the gesture IDs in the latest detection
-                finger_gesture_history.append(finger_gesture_id)
-                most_common_fg_id = Counter(
-                    finger_gesture_history).most_common()
-
-                # Drawing part
-                debug_image = draw_bounding_rect(use_brect, debug_image, brect)
-                debug_image = draw_landmarks(debug_image, landmark_list)
-                debug_image = draw_info_text(
-                    debug_image,
-                    brect,
-                    handedness,
-                    keypoint_classifier_labels[hand_sign_id],
-                    point_history_classifier_labels[most_common_fg_id[0][0]],
-                )
-        else:
-            point_history.append([0, 0])
-
-        debug_image = draw_point_history(debug_image, point_history)
-        debug_image = draw_info(debug_image, fps, mode, number)
-
-        # Screen reflection #############################################################
-        cv.imshow('Hand Gesture Recognition', debug_image)
-
-    cap.release()
-    cv.destroyAllWindows()
-    
 if __name__ == '__main__':
     main()
