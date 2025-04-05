@@ -54,16 +54,18 @@ function App() {
   };
 
   // Stop the ML camera script and stop gesture polling
-  const stopCamera = () => {
-    setIsCameraActive(false);
-    setGesture("");
-    if (window.gesturePollingInterval) {
-      clearInterval(window.gesturePollingInterval);
-    }
-    fetch("http://localhost:5000/stop-camera")
-      .then(() => console.log("Camera stopped"))
-      .catch((err) => console.error("Error stopping camera:", err));
-  };
+  // In App.jsx, modify stopCamera function:
+const stopCamera = () => {
+  setIsCameraActive(false);
+  setGesture("");
+  if (window.gesturePollingInterval) {
+    clearInterval(window.gesturePollingInterval);
+    window.gesturePollingInterval = null; // Explicitly reset
+  }
+  fetch("http://localhost:5000/stop-camera")
+    .then(() => console.log("Camera stopped"))
+    .catch((err) => console.error("Error stopping camera:", err));
+};
 
   return (
     <div className="app-container">
