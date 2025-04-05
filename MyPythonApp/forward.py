@@ -3,6 +3,7 @@ import socket
 import threading
 from flask import Flask, request, jsonify
 
+
 app = Flask(__name__)
 mobile_conn = None  # This will hold the socket connection to the mobile
 
@@ -55,6 +56,9 @@ def receive_detection():
 
     return jsonify({'status': 'success'}), 200
 
-if __name__ == '__main__':
+def start_server():
     threading.Thread(target=socket_listener, daemon=True).start()
     app.run(host="0.0.0.0", port=5000)
+
+if __name__ == '__main__':
+    start_server()

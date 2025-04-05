@@ -645,6 +645,5 @@ def draw_info(image, fps, mode, number):
                        cv.LINE_AA)
     return image
 
-
 if __name__ == '__main__':
     main()
