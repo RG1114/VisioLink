@@ -1,34 +1,74 @@
 const express = require("express");
-const os = require("os");
 const { exec } = require("child_process");
+const path = require("path");
+const cors = require("cors");
 
 const app = express();
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 
-function getServerIP() {
-    const interfaces = os.networkInterfaces();
-    for (let interfaceName in interfaces) {
-        for (let iface of interfaces[interfaceName]) {
-            if (iface.family === "IPv4" && !iface.internal) {
-                return iface.address;
-            }
-        }
-    }
-    return "Not Available";
-}
+app.use(cors());
+app.use(express.json());
 
-app.get("/get-ip", (req, res) => {
-    res.json({ ip: getServerIP() });
+// Remove any "get-ip" routes or static build references if you don't need them
+// for a production build. For dev, you can comment out the lines below if you'd like.
+/*
+app.use(express.static(path.join(__dirname, "build")));
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "build", "index.html"));
 });
+*/
 
+// Track camera process
+let cameraProcess = null;
+
+// Start camera
 app.get("/start-camera", (req, res) => {
-    exec("python run_gesture_model.py", (error, stdout, stderr) => {
-        if (error) {
-            console.error(`Error: ${error.message}`);
-            return res.status(500).send("Failed to start camera.");
-        }
-        res.send("Camera started successfully.");
+  try {
+    if (cameraProcess) {
+      return res.status(400).json({ message: "Camera is already running" });
+    }
+    console.log("Starting camera process...");
+    cameraProcess = exec("python run_gesture_model.py", (error, stdout, stderr) => {
+      if (error) {
+        console.error(`Camera process error: ${error.message}`);
+        return;
+      }
+      if (stderr) {
+        console.error(`Camera process stderr: ${stderr}`);
+        return;
+      }
+      console.log(`Camera process stdout: ${stdout}`);
     });
+    cameraProcess.on("exit", (code) => {
+      console.log(`Camera process exited with code ${code}`);
+      cameraProcess = null;
+    });
+    res.status(200).json({ message: "Camera started successfully" });
+  } catch (error) {
+    console.error("Error starting camera:", error);
+    res.status(500).json({ error: "Failed to start camera" });
+  }
 });
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// Stop camera
+app.get("/stop-camera", (req, res) => {
+  try {
+    if (!cameraProcess) {
+      return res.status(400).json({ message: "No camera process running" });
+    }
+    if (process.platform === "win32") {
+      exec(`taskkill /pid ${cameraProcess.pid} /f /t`);
+    } else {
+      cameraProcess.kill();
+    }
+    cameraProcess = null;
+    res.status(200).json({ message: "Camera stopped successfully" });
+  } catch (error) {
+    console.error("Error stopping camera:", error);
+    res.status(500).json({ error: "Failed to stop camera" });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
