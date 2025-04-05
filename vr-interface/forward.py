@@ -43,7 +43,6 @@ def socket_listener():
 
 @app.route('/my-ip', methods=['GET'])
 def get_my_ip():
-    """Return the IP that the socket server is listening on."""
     return jsonify({'ip': get_host_ip()})
 
 @app.route('/connection-status')

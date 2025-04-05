@@ -9,19 +9,16 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// Remove any "get-ip" routes or static build references if you don't need them
-// for a production build. For dev, you can comment out the lines below if you'd like.
-/*
-app.use(express.static(path.join(__dirname, "build")));
-app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "build", "index.html"));
-});
-*/
+// We no longer serve the IP from here; forward.py handles that.
+// Uncomment below if you plan to serve a build in production.
+// app.use(express.static(path.join(__dirname, "build")));
+// app.get("*", (req, res) => {
+//   res.sendFile(path.join(__dirname, "build", "index.html"));
+// });
 
 // Track camera process
 let cameraProcess = null;
 
-// Start camera
 app.get("/start-camera", (req, res) => {
   try {
     if (cameraProcess) {
@@ -50,7 +47,6 @@ app.get("/start-camera", (req, res) => {
   }
 });
 
-// Stop camera
 app.get("/stop-camera", (req, res) => {
   try {
     if (!cameraProcess) {

@@ -67,7 +67,7 @@ def main():
 
     last_detected_gesture = None
     last_send_time = time.time()
-    send_interval = 0.5  # Send updates every 0.5 seconds
+    send_interval = 0.5
     start_time = time.time()
     mode = 0
 
@@ -104,7 +104,7 @@ def main():
                 hand_sign_id = keypoint_classifier(pre_processed_landmark_list)
                 current_gesture = keypoint_classifier_labels[hand_sign_id]
                 print(f"Detected gesture: {current_gesture}")
-                if hand_sign_id == 2:  # Example: if gesture is "Point gesture"
+                if hand_sign_id == 2:
                     point_history.append(landmark_list[8])
                 else:
                     point_history.append([0, 0])
@@ -225,7 +225,6 @@ def logging_csv(number, mode, landmark_list, point_history_list):
     return
 
 def draw_landmarks(image, landmark_point):
-    # (Drawing code omitted for brevity; include your existing drawing code here)
     for index, landmark in enumerate(landmark_point):
         cv.circle(image, (landmark[0], landmark[1]), 5, (255, 255, 255), -1)
     return image
