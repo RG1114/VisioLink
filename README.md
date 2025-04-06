@@ -29,7 +29,7 @@ There are **two components**:
 ### Prerequisites
 
 - Python 3.7 or higher
-- A smartphone with a simple VR headset (like Google Cardboard)
+- A smartphone with a simple VR headset
 - A laptop with an HD webcam
 - Both devices connected to the same local Wi-Fi network
 
