@@ -48,12 +48,18 @@ There are **two components**:
     pip install -r requirements.txt
     ```
 
-3. **Run the Motion Tracking Server**
+3. **Run on Terminal in this Folder to install PyGame**
+
+   ```bash
+   pip install pygame
+   ```
+
+4. **Run the Motion Tracking Server**
 
     ```bash
     python app.py
     ```
-4. **Launch the VR App on Phone**
+5. **Launch the VR App on Phone**
 
 - Deploy your Unity/WebXR VR scene to your phone.
 
