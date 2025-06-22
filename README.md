@@ -21,6 +21,7 @@ There are **two components**:
 - **Smartphone** (VR Display):
   - Runs a Unity/WebXR-based app displaying a stereoscopic VR scene.
   - Receives and applies motion control signals from the laptop.
+  - [Install and run the mobile app](https://visio-link-website.vercel.app/)
 
 ---
 
